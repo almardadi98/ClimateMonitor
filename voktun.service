@@ -1,0 +1,15 @@
+[Unit]
+Description=Sendir hitastig i InfluxDB
+After=network-online.target
+StartLimitIntervalSec=500
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=5s
+ExecStart=/usr/bin/python3 /usr/bin/voktun_service.py
+
+
+[Install]
+WantedBy=multi-user.target
