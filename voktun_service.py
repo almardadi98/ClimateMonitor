@@ -1,13 +1,14 @@
 from datetime import datetime
-from os import read
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.write_api import SYNCHRONOUS
 from climate import Climate
+from environment import Environment
 from w1thermsensor import W1ThermSensor
 import RPi.GPIO as GPIO
 import raspberry_am2320 as AOSONG
 import logging
 import time
+import os
 import socket
 import json
 
@@ -24,12 +25,14 @@ def read_settings(filename: str) -> InfluxSettings:
     return InfluxSettings(**settings_dict)
 
 
-def write_climate_data(climate_data: Climate, settings: InfluxSettings, hostname: str) -> None:
+def write_climate_data(climate_data: Climate, settings: InfluxSettings, environment: Environment) -> None:
     with InfluxDBClient(url=settings.url, token=settings.token, org=settings.org) as client:
         write_api = client.write_api(write_options=SYNCHRONOUS)
 
         point = Point("climate") \
-            .tag("host", hostname) \
+            .tag("host", environment.hostname) \
+            .tag("location", environment.location) \
+            .tag("ip_address", environment.ip_address) \
             .field("temperature", climate_data.temperature) \
             .field("humidity", climate_data.humidity) \
             .time(datetime.utcnow(), WritePrecision.NS)
@@ -38,6 +41,7 @@ def write_climate_data(climate_data: Climate, settings: InfluxSettings, hostname
 
 
 def get_temperature() -> float:
+    """ One wire temperature sensor. """
     try:
         temperature_sensor = W1ThermSensor()
     except NoSensorFoundError as e:
@@ -66,20 +70,29 @@ def get_humidity() -> float:
     return humidity
 
 
+def set_environment():
+    environment = Environment()
+    environment.hostname = socket.gethostname()
+    environment.ip_address = socket.gethostbyname(environment.hostname)
+    environment.location = os.environ("location")
+    return environment
+
+
 def main():
     filename = "settings.json"
     settings = read_settings(filename)
     print(settings)
     if settings is None:
-        logging.debug("Error reading settings.json")
+        logging.debug(f"Error reading {filename}")
 
     logging.debug('InfluxDB server: ' + settings.url)
     climate = Climate()
+    environment = set_environment()
     while True:
         climate.temperature = get_temperature()
         climate.humidity = get_humidity()
-        hostname = socket.gethostname()
-        write_climate_data(climate, settings, hostname)
+
+        write_climate_data(climate, settings, environment)
         time.sleep(5)
 
 
