@@ -1,111 +1,87 @@
-from influxdb import InfluxDBClient
+from datetime import datetime
+from os import read
+from influxdb_client import InfluxDBClient, Point, WritePrecision
+from influxdb_client.client.write_api import SYNCHRONOUS
+from climate import Climate
 from w1thermsensor import W1ThermSensor
 import RPi.GPIO as GPIO
 import raspberry_am2320 as AOSONG
 import logging
 import time
 import socket
+import json
 
-logging.basicConfig(filename='voktun_service.log',format='%(asctime)s %(message)s',level=logging.INFO)
+from influx_settings import InfluxSettings
+
+logging.basicConfig(filename='voktun_service.log',
+                    format='%(asctime)s %(message)s', level=logging.INFO)
 logging.debug('Starting script')
 
 
-class ClimateData:
-    def __init__(self, location, hostname):
-        self.location = location
-        self.hostname = hostname
-        self.temperature = -1.0
-        self.humidity = -1.0
-
-    def __repr__(self):
-        return f'{self.hostname!r}@{self.location!r} | Temperature: {self.temperature!r}°C, Humidity: {self.humidity!r}%'
-
-    def set_temperature(self, temperature):
-        self.temperature = temperature
-    
-    def set_humidity(self, humidity):
-        self.humidity = humidity
-
-    def get_temperature(self):
-        return self.temperature
-
-    def get_humidity(self):
-        return self.humidity
-
-    def get_climate_in_json(self):
-        assert self.temperature != None
-        assert self.humidity != None
-
-        self.json_body = [
-            {
-                "measurement": "Climate",
-                "tags": {
-                    "host": self.hostname,
-                    "Location": self.location,
-                },
-                "fields": {
-                    "Temperature": self.temperature,
-                    "Humidity": self.humidity,
-                }
-            }
-        ]
-        return self.json_body
+def read_settings(filename: str) -> InfluxSettings:
+    with open(filename, "r", encoding="UTF-8") as file:
+        settings_dict = json.load(file)
+    return InfluxSettings(**settings_dict)
 
 
+def write_climate_data(climate_data: Climate, settings: InfluxSettings, hostname: str) -> None:
+    with InfluxDBClient(url="", token=settings.token, org=settings.org) as client:
+        write_api = client.write_api(write_options=SYNCHRONOUS)
 
-def main():
-    hostname = socket.gethostname()
+        point = Point("climate") \
+            .tag("host", hostname) \
+            .field("temperature", climate_data.temperature) \
+            .field("humidity", climate_data.humidity) \
+            .time(datetime.utcnow(), WritePrecision.NS)
 
-    #Hitaskynjari
+        write_api.write(settings.bucket, settings.org, point)
+
+
+def get_temperature() -> float:
     try:
         temperature_sensor = W1ThermSensor()
-    except:
+    except NoSensorFoundError as e:
+        logging.debug(e)
         temperature_sensor = None
+    except SensorNotReadyError as e:
+        logging.debug(e)
+        time.sleep(1)
+        temperature_sensor = W1ThermSensor()
 
-    #Rakaskynjari (og hita en er ekki notaður sem slíkur)
+    return temperature_sensor.get_temperature()
+
+
+def get_humidity() -> float:
+    """ Humidity sensor. Do not query faster than once per two seconds."""
     # initialize GPIO
     GPIO.setmode(GPIO.BCM)
     # read data using pin 17
     sensor = AOSONG.AM2320_1WIRE(pin=17)
+    try:
+        temperature_am2320, humidity = sensor.readSensor()
+    except AOSONG.DataError as e:
+        logging.debug(f"AM2320 read error: {e}")
+    return humidity
 
 
-    InfluxServer = 'exampleserver'
-    
-    logging.debug('InfluxDB server: ' + InfluxServer)
-    #Búa til climatedata objectið
-    climate = ClimateData("Skrifstofa", hostname)
+def main():
+    filename = "settings.json"
+    settings = read_settings(filename)
+    print(settings)
+    if settings is None:
+        logging.debug("Error reading settings.json")
 
-    client = InfluxDBClient(InfluxServer, 8086, 'InfluxUser', 'InfluxPassword', 'InfluxDatabase')
-
+    logging.debug('InfluxDB server: ' + settings.url)
+    climate = Climate()
     while True:
-        print(climate)
-
-        try:
-            #Ekki spyrja oftar en á tveggja sek fresti!
-            (temperature_am2320,humidity) = sensor.readSensor()
-            climate.set_humidity( humidity ) 
-
-        except AOSONG.DataError as e:
-            #Try try again
-            logging.debug(f"AM2320 read error: {e}")
-
-        #Bara reyna að skrá hitastig ef það er hitaskynjari tengdur
-        if temperature_sensor:
-            climate.set_temperature( temperature_sensor.get_temperature() )
-
-        try:
-            json_climate_data = climate.get_climate_in_json()
-            logging.debug(climate)
-            logging.debug("Sending json data...")
-            client.write_points(json_climate_data)
-        except IOError:
-            logging.debug("IO error, check connection to database")
-        except Exception as e:
-            logging.debug(f"Error occured: {e}")
+        climate.temperature = get_temperature()
+        climate.humidity = get_humidity()
+        hostname = socket.gethostname()
+        write_climate_data(climate, settings, hostname)
         time.sleep(5)
 
 
-if __name__ =='__main__':
+if __name__ == '__main__':
     main()
 
 GPIO.cleanup()
