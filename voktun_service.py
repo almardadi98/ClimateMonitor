@@ -25,7 +25,7 @@ def read_settings(filename: str) -> InfluxSettings:
 
 
 def write_climate_data(climate_data: Climate, settings: InfluxSettings, hostname: str) -> None:
-    with InfluxDBClient(url="", token=settings.token, org=settings.org) as client:
+    with InfluxDBClient(url=settings.url, token=settings.token, org=settings.org) as client:
         write_api = client.write_api(write_options=SYNCHRONOUS)
 
         point = Point("climate") \
