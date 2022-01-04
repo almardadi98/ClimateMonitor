@@ -4,3 +4,6 @@
 
 ## voktun.service
 Þetta er skrá sem skilgreinir systemd þjónustuna fyrir þetta forrit.
+
+
+Environment variable "location" er hægt að nota til að aðskilja gögnin
