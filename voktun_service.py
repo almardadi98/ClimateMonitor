@@ -74,7 +74,7 @@ def set_environment():
     environment = Environment()
     environment.hostname = socket.gethostname()
     environment.ip_address = socket.gethostbyname(environment.hostname)
-    environment.location = os.environ("location")
+    environment.location = os.getenv("location")
     return environment
 
 
