@@ -57,6 +57,8 @@ def get_humidity() -> float:
     GPIO.setmode(GPIO.BCM)
     # read data using pin 17
     sensor = AOSONG.AM2320_1WIRE(pin=17)
+    temperature_am2320 = None
+    humidity = None
     try:
         temperature_am2320, humidity = sensor.readSensor()
     except AOSONG.DataError as e:
