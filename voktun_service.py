@@ -11,11 +11,10 @@ import time
 import os
 import socket
 import json
-
 from influx_settings import InfluxSettings
 
 logging.basicConfig(filename='voktun_service.log',
-                    format='%(asctime)s %(message)s', level=logging.INFO)
+                    format='%(asctime)s %(message)s', level=logging.DEBUG)
 logging.debug('Starting script')
 
 
